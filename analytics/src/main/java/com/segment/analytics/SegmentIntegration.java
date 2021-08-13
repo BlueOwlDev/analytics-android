@@ -23,13 +23,6 @@
  */
 package com.segment.analytics;
 
-import static android.os.Process.THREAD_PRIORITY_BACKGROUND;
-import static com.segment.analytics.internal.Utils.THREAD_PREFIX;
-import static com.segment.analytics.internal.Utils.closeQuietly;
-import static com.segment.analytics.internal.Utils.createDirectory;
-import static com.segment.analytics.internal.Utils.isConnected;
-import static com.segment.analytics.internal.Utils.toISO8601Date;
-
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -64,6 +57,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import static android.os.Process.THREAD_PRIORITY_BACKGROUND;
+import static com.segment.analytics.internal.Utils.THREAD_PREFIX;
+import static com.segment.analytics.internal.Utils.closeQuietly;
+import static com.segment.analytics.internal.Utils.createDirectory;
+import static com.segment.analytics.internal.Utils.isConnected;
+import static com.segment.analytics.internal.Utils.toISO8601Date;
+
 /** Entity that queues payloads on disks and uploads them periodically. */
 class SegmentIntegration extends Integration<Void> {
 
@@ -72,18 +72,19 @@ class SegmentIntegration extends Integration<Void> {
                 @Override
                 public Integration<?> create(ValueMap settings, Analytics analytics) {
                     return SegmentIntegration.create(
-                            analytics.getApplication(),
-                            analytics.client,
-                            analytics.cartographer,
-                            analytics.networkExecutor,
-                            analytics.stats,
-                            Collections.unmodifiableMap(analytics.bundledIntegrations),
-                            analytics.tag,
-                            analytics.flushIntervalInMillis,
-                            analytics.flushQueueSize,
-                            analytics.getLogger(),
-                            analytics.crypto,
-                            settings);
+                        analytics.getApplication(),
+                        analytics.client,
+                        analytics.cartographer,
+                        analytics.networkExecutor,
+                        analytics.stats,
+                        Collections.unmodifiableMap(analytics.bundledIntegrations),
+                        analytics.tag,
+                        analytics.flushIntervalInMillis,
+                        analytics.flushQueueSize,
+                        analytics.getLogger(),
+                        analytics.remoteLogger,
+                        analytics.crypto,
+                        settings);
                 }
 
                 @Override
@@ -123,6 +124,7 @@ class SegmentIntegration extends Integration<Void> {
     private final ExecutorService networkExecutor;
     private final ScheduledExecutorService flushScheduler;
     private final String apiHost;
+    private final RemoteLogger remoteLogger;
     /**
      * We don't want to stop adding payloads to our disk queue when we're uploading payloads. So we
      * upload payloads on a network executor instead.
@@ -170,18 +172,19 @@ class SegmentIntegration extends Integration<Void> {
     }
 
     static synchronized SegmentIntegration create(
-            Context context,
-            Client client,
-            Cartographer cartographer,
-            ExecutorService networkExecutor,
-            Stats stats,
-            Map<String, Boolean> bundledIntegrations,
-            String tag,
-            long flushIntervalInMillis,
-            int flushQueueSize,
-            Logger logger,
-            Crypto crypto,
-            ValueMap settings) {
+        Context context,
+        Client client,
+        Cartographer cartographer,
+        ExecutorService networkExecutor,
+        Stats stats,
+        Map<String, Boolean> bundledIntegrations,
+        String tag,
+        long flushIntervalInMillis,
+        int flushQueueSize,
+        Logger logger,
+        RemoteLogger remoteLogger, 
+        Crypto crypto,
+        ValueMap settings) {
         PayloadQueue payloadQueue;
         try {
             File folder = context.getDir("segment-disk-queue", Context.MODE_PRIVATE);
@@ -193,39 +196,41 @@ class SegmentIntegration extends Integration<Void> {
         }
         String apiHost = settings.getString("apiHost");
         return new SegmentIntegration(
-                context,
-                client,
-                cartographer,
-                networkExecutor,
-                payloadQueue,
-                stats,
-                bundledIntegrations,
-                flushIntervalInMillis,
-                flushQueueSize,
-                logger,
-                crypto,
-                apiHost);
+            context,
+            client,
+            cartographer,
+            networkExecutor,
+            payloadQueue,
+            stats,
+            bundledIntegrations,
+            flushIntervalInMillis,
+            flushQueueSize,
+            logger,
+            remoteLogger,
+            crypto,
+            apiHost);
     }
 
     SegmentIntegration(
-            Context context,
-            Client client,
-            Cartographer cartographer,
-            ExecutorService networkExecutor,
-            PayloadQueue payloadQueue,
-            Stats stats,
-            Map<String, Boolean> bundledIntegrations,
-            long flushIntervalInMillis,
-            int flushQueueSize,
-            Logger logger,
-            Crypto crypto,
-            String apiHost) {
+        Context context,
+        Client client,
+        Cartographer cartographer,
+        ExecutorService networkExecutor,
+        PayloadQueue payloadQueue,
+        Stats stats,
+        Map<String, Boolean> bundledIntegrations,
+        long flushIntervalInMillis,
+        int flushQueueSize,
+        Logger logger,
+        RemoteLogger remoteLogger, Crypto crypto,
+        String apiHost) {
         this.context = context;
         this.client = client;
         this.networkExecutor = networkExecutor;
         this.payloadQueue = payloadQueue;
         this.stats = stats;
         this.logger = logger;
+        this.remoteLogger = remoteLogger;
         this.bundledIntegrations = bundledIntegrations;
         this.cartographer = cartographer;
         this.flushQueueSize = flushQueueSize;
@@ -324,6 +329,7 @@ class SegmentIntegration extends Integration<Void> {
             }
             payloadQueue.add(bytes);
         } catch (IOException e) {
+            remoteLogger.logE("Exception during enqueue", e);
             logger.error(e, "Could not add payload %s to queue: %s.", payload, payloadQueue);
             return;
         }
@@ -396,6 +402,8 @@ class SegmentIntegration extends Integration<Void> {
             // Upload the payloads.
             connection.close();
         } catch (Client.HTTPException e) {
+            String message = appendNetInfo("Analytics v2 http error during flush", connection);
+            remoteLogger.logE(message, e);
             if (e.is4xx() && e.responseCode != 429) {
                 // Simply log and proceed to remove the rejected payloads from the queue.
                 logger.error(e, "Payloads were rejected by server. Marked for removal.");
@@ -411,6 +419,9 @@ class SegmentIntegration extends Integration<Void> {
                 return;
             }
         } catch (IOException e) {
+            String message = appendNetInfo("Analytics v2 io error during flush", connection);
+            remoteLogger.logE(message, e);
+
             logger.error(e, "Error while uploading payloads");
             return;
         } finally {
@@ -431,6 +442,15 @@ class SegmentIntegration extends Integration<Void> {
         if (payloadQueue.size() > 0) {
             performFlush(); // Flush any remaining items.
         }
+    }
+
+    private String appendNetInfo(String message, Client.Connection connection) {
+        String responseRequestId = (connection != null && connection.connection != null) ? connection.connection.getHeaderField("X-Request-Id") : null;
+        if (responseRequestId != null) {
+            remoteLogger.customKV("AnalyticsV2-Request-Id", responseRequestId);
+            message += String.format(" (request-id: %s)", responseRequestId);
+        }
+        return message;
     }
 
     void shutdown() {

@@ -654,6 +654,7 @@ class SegmentIntegrationTest {
                 flushInterval.toLong(),
                 flushSize,
                 logger,
+                remoteLogger,
                 Crypto.none(),
                 DEFAULT_API_HOST
             )
