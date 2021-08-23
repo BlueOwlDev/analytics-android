@@ -23,16 +23,6 @@
  */
 package com.segment.analytics;
 
-import static com.segment.analytics.internal.Utils.assertNotNull;
-import static com.segment.analytics.internal.Utils.buffer;
-import static com.segment.analytics.internal.Utils.closeQuietly;
-import static com.segment.analytics.internal.Utils.getResourceString;
-import static com.segment.analytics.internal.Utils.getSegmentSharedPreferences;
-import static com.segment.analytics.internal.Utils.hasPermission;
-import static com.segment.analytics.internal.Utils.immutableCopyOf;
-import static com.segment.analytics.internal.Utils.isEmptyOrBlank;
-import static com.segment.analytics.internal.Utils.isNullOrEmpty;
-
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -77,6 +67,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.NotNull;
+
+import static com.segment.analytics.internal.Utils.assertNotNull;
+import static com.segment.analytics.internal.Utils.buffer;
+import static com.segment.analytics.internal.Utils.closeQuietly;
+import static com.segment.analytics.internal.Utils.getResourceString;
+import static com.segment.analytics.internal.Utils.getSegmentSharedPreferences;
+import static com.segment.analytics.internal.Utils.hasPermission;
+import static com.segment.analytics.internal.Utils.immutableCopyOf;
+import static com.segment.analytics.internal.Utils.isEmptyOrBlank;
+import static com.segment.analytics.internal.Utils.isNullOrEmpty;
 
 /**
  * The entry point into the Segment for Android SDK.
@@ -128,6 +128,7 @@ public class Analytics {
     @Private final Traits.Cache traitsCache;
     @Private final AnalyticsContext analyticsContext;
     private final Logger logger;
+    final RemoteLogger remoteLogger;
     final String tag;
     final Client client;
     final Cartographer cartographer;
@@ -212,36 +213,37 @@ public class Analytics {
     }
 
     Analytics(
-            Application application,
-            ExecutorService networkExecutor,
-            Stats stats,
-            Traits.Cache traitsCache,
-            AnalyticsContext analyticsContext,
-            Options defaultOptions,
-            @NonNull Logger logger,
-            String tag,
-            @NonNull List<Integration.Factory> factories,
-            Client client,
-            Cartographer cartographer,
-            ProjectSettings.Cache projectSettingsCache,
-            String writeKey,
-            int flushQueueSize,
-            long flushIntervalInMillis,
-            final ExecutorService analyticsExecutor,
-            final boolean shouldTrackApplicationLifecycleEvents,
-            CountDownLatch advertisingIdLatch,
-            final boolean shouldRecordScreenViews,
-            final boolean trackDeepLinks,
-            BooleanPreference optOut,
-            Crypto crypto,
-            @NonNull List<Middleware> sourceMiddleware,
-            @NonNull Map<String, List<Middleware>> destinationMiddleware,
-            JSMiddleware edgeFunctionMiddleware,
-            @NonNull final ValueMap defaultProjectSettings,
-            @NonNull Lifecycle lifecycle,
-            boolean nanosecondTimestamps,
-            boolean useNewLifecycleMethods,
-            String defaultApiHost) {
+        Application application,
+        ExecutorService networkExecutor,
+        Stats stats,
+        Traits.Cache traitsCache,
+        AnalyticsContext analyticsContext,
+        Options defaultOptions,
+        @NonNull Logger logger,
+        RemoteLogger remoteLogger,
+        String tag,
+        @NonNull List<Integration.Factory> factories,
+        Client client,
+        Cartographer cartographer,
+        ProjectSettings.Cache projectSettingsCache,
+        String writeKey,
+        int flushQueueSize,
+        long flushIntervalInMillis,
+        final ExecutorService analyticsExecutor,
+        final boolean shouldTrackApplicationLifecycleEvents,
+        CountDownLatch advertisingIdLatch,
+        final boolean shouldRecordScreenViews,
+        final boolean trackDeepLinks,
+        BooleanPreference optOut,
+        Crypto crypto,
+        @NonNull List<Middleware> sourceMiddleware,
+        @NonNull Map<String, List<Middleware>> destinationMiddleware,
+        JSMiddleware edgeFunctionMiddleware,
+        @NonNull final ValueMap defaultProjectSettings,
+        @NonNull Lifecycle lifecycle,
+        boolean nanosecondTimestamps,
+        boolean useNewLifecycleMethods,
+        String defaultApiHost) {
         this.application = application;
         this.networkExecutor = networkExecutor;
         this.stats = stats;
@@ -249,6 +251,7 @@ public class Analytics {
         this.analyticsContext = analyticsContext;
         this.defaultOptions = defaultOptions;
         this.logger = logger;
+        this.remoteLogger = remoteLogger;
         this.tag = tag;
         this.client = client;
         this.cartographer = cartographer;
@@ -1086,6 +1089,7 @@ public class Analytics {
         private ValueMap defaultProjectSettings = new ValueMap();
         private boolean useNewLifecycleMethods = true; // opt-out feature
         private String defaultApiHost = Utils.DEFAULT_API_HOST;
+        private RemoteLogger remoteLogger = null;
 
         /**
          * Start building a new {@link Analytics} instance.
@@ -1402,6 +1406,11 @@ public class Analytics {
             return this;
         }
 
+        public Builder addRemoteLogger(@NotNull RemoteLogger remoteLogger) {
+            this.remoteLogger = remoteLogger;
+            return this;
+        }
+
         /**
          * The executor on which payloads are dispatched asynchronously. This is not exposed
          * publicly.
@@ -1503,6 +1512,7 @@ public class Analytics {
                     analyticsContext,
                     defaultOptions,
                     logger,
+                    remoteLogger,
                     tag,
                     Collections.unmodifiableList(factories),
                     client,
