@@ -24,15 +24,10 @@
 package com.segment.analytics.internal;
 
 import static android.Manifest.permission.ACCESS_NETWORK_STATE;
-import static android.Manifest.permission.READ_PHONE_STATE;
 import static android.content.Context.CONNECTIVITY_SERVICE;
 import static android.content.Context.MODE_PRIVATE;
-import static android.content.Context.TELEPHONY_SERVICE;
-import static android.content.pm.PackageManager.FEATURE_TELEPHONY;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 import static android.os.Process.THREAD_PRIORITY_BACKGROUND;
-import static android.provider.Settings.Secure.ANDROID_ID;
-import static android.provider.Settings.Secure.getString;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -44,7 +39,6 @@ import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Process;
-import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -68,7 +62,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -300,40 +293,6 @@ public final class Utils {
             return Collections.emptyList();
         }
         return Collections.unmodifiableList(new ArrayList<>(list));
-    }
-
-    /**
-     * Creates a unique device id. Suppresses `HardwareIds` lint warnings as we don't use this ID
-     * for identifying specific users. This is also what is required by the Segment spec.
-     */
-    @SuppressLint("HardwareIds")
-    public static String getDeviceId(Context context) {
-        String androidId = getString(context.getContentResolver(), ANDROID_ID);
-        if (!isNullOrEmpty(androidId)
-                && !"9774d56d682e549c".equals(androidId)
-                && !"unknown".equals(androidId)
-                && !"000000000000000".equals(androidId)) {
-            return androidId;
-        }
-
-        // Serial number, guaranteed to be on all non phones in 2.3+.
-        if (!isNullOrEmpty(Build.SERIAL)) {
-            return Build.SERIAL;
-        }
-
-        // Telephony ID, guaranteed to be on all phones, requires READ_PHONE_STATE permission
-        if (hasPermission(context, READ_PHONE_STATE) && hasFeature(context, FEATURE_TELEPHONY)) {
-            TelephonyManager telephonyManager = getSystemService(context, TELEPHONY_SERVICE);
-            @SuppressLint("MissingPermission")
-            String telephonyId = telephonyManager.getDeviceId();
-            if (!isNullOrEmpty(telephonyId)) {
-                return telephonyId;
-            }
-        }
-
-        // If this still fails, generate random identifier that does not persist across
-        // installations
-        return UUID.randomUUID().toString();
     }
 
     /** Returns a shared preferences for storing any library preferences. */
